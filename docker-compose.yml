@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  rabbit:
+    image: rabbitmq:3.10.7-management
+    container_name: rabbitmq-SA
+    hostname: rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    volumes:
+      - ./rabbitmqData:/var/lib/rabbitmq
+
+  rest-api:
+    build:
+      context: ./rest-api
+    container_name: rest-api
+    depends_on:
+      rabbit:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    env_file:
+      - rest-api/.env
+
+  filter-service:
+    build:
+      context: ./filter-service
+    container_name: filter-service
+    depends_on:
+      rabbit:
+        condition: service_healthy
+      rest-api:
+        condition: service_started
+    env_file:
+      - filter-service/.env
+
+  screaming-service:
+    build:
+      context: ./screaming-service
+    container_name: screaming-service
+    depends_on:
+      rabbit:
+        condition: service_healthy
+      filter-service:
+        condition: service_started
+    env_file:
+      - screaming-service/.env
+
+  publish-service:
+    build:
+      context: ./publish-service
+    container_name: publish-service
+    depends_on:
+      rabbit:
+        condition: service_healthy
+      screaming-service:
+        condition: service_started
+    env_file:
+      - publish-service/.env
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:
